@@ -1,0 +1,1158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0b1014">
+<title>AngleStamp Camera</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+/* Layout: full-bleed viewfinder with an instrument "dock" below (right side in landscape). Single dark look, like a field instrument. */
+:root{
+  --bg:#0b1014; --panel:rgba(11,16,20,.78); --sheet:#11181d; --raised:#18222a; --line:rgba(214,230,240,.14);
+  --fg:#e8eef2; --muted:#93a3ad; --amber:#ffb547; --ok:#4fe0b6; --warn:#ff6b5b;
+  --ui:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans Myanmar",sans-serif;
+  --mono:ui-monospace,"Roboto Mono","SF Mono",Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 var(--ui);overflow:hidden;-webkit-tap-highlight-color:transparent}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+svg.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+#app{position:fixed;inset:0;display:flex;flex-direction:column;user-select:none}
+#top{display:flex;align-items:center;gap:4px;
+  padding:calc(env(safe-area-inset-top,0px) + 6px) max(10px,env(safe-area-inset-right,0px)) 6px max(10px,env(safe-area-inset-left,0px))}
+#top .spacer{flex:1}
+.tb{display:flex;flex-direction:column;align-items:center;gap:1px;min-width:48px;height:46px;justify-content:center;border:0;border-radius:10px;background:transparent;color:var(--fg);font-size:10px;letter-spacing:.04em;text-transform:uppercase}
+.tb[aria-pressed="true"]{color:var(--amber)}
+.tb:active{background:var(--raised)}
+#projChip{max-width:40vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid var(--line);border-radius:999px;padding:5px 12px;background:transparent;color:var(--muted);font-size:12px}
+#projChip.set{color:var(--fg);border-color:rgba(255,181,71,.5)}
+
+#stage{flex:1;min-height:0;position:relative;display:flex;align-items:center;justify-content:center;background:#000}
+#vf{position:relative;overflow:hidden;background:#05080a}
+#vf video,#vf canvas{position:absolute;inset:0;width:100%;height:100%}
+#vf video{object-fit:cover}
+#badges{position:absolute;left:8px;bottom:8px;display:flex;gap:6px;pointer-events:none}
+.badge{font:600 11px var(--mono);letter-spacing:.06em;padding:3px 7px;border-radius:6px;background:var(--amber);color:#1b1206}
+#zoomRow{position:absolute;left:0;right:0;bottom:10px;display:flex;justify-content:center;gap:6px}
+#zoomRow button{min-width:44px;height:34px;border-radius:999px;border:0;background:rgba(0,0,0,.55);font:600 12px var(--mono)}
+#zoomRow button[aria-pressed="true"]{background:var(--amber);color:#1b1206}
+#flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+#flash.go{animation:fl .28s ease-out}
+@keyframes fl{0%{opacity:.85}100%{opacity:0}}
+#count{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:700 120px var(--mono);color:var(--amber);text-shadow:0 2px 12px #000;pointer-events:none}
+
+#dock{background:var(--bg);padding:0 max(12px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 10px) max(12px,env(safe-area-inset-left,0px))}
+#reads{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border-bottom:1px solid var(--line);margin:0 calc(-1 * max(12px,env(safe-area-inset-left,0px)))}
+.rd{background:var(--bg);padding:7px 4px 6px;text-align:center;min-width:0}
+.rd b{display:block;font:500 10px var(--ui);letter-spacing:.09em;color:var(--muted);text-transform:uppercase}
+.rd span{display:block;font:600 16px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
+.rd[data-state="ok"] span{color:var(--ok)}
+.rd[data-state="fair"] span{color:var(--amber)}
+.rd[data-state="poor"] span{color:var(--warn)}
+#noteRow{display:flex;gap:8px;align-items:center;padding:10px 0 6px}
+#note{flex:1;min-width:0;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--raised);padding:0 12px;font-size:15px}
+#note::placeholder{color:#6f7f88}
+#keepNote{height:40px;padding:0 10px;border-radius:10px;border:1px solid var(--line);background:transparent;font-size:12px;color:var(--muted)}
+#keepNote[aria-pressed="true"]{color:var(--amber);border-color:rgba(255,181,71,.5)}
+#ctrl{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding-top:6px}
+#thumb{justify-self:start;width:56px;height:56px;border-radius:12px;border:1px solid var(--line);background:var(--raised) center/cover no-repeat;position:relative}
+#thumb small{position:absolute;right:-6px;top:-6px;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--amber);color:#1b1206;font:700 11px/20px var(--mono)}
+#shutter{width:76px;height:76px;border-radius:50%;border:4px solid var(--fg);background:transparent;padding:5px}
+#shutter i{display:block;width:100%;height:100%;border-radius:50%;background:var(--fg);transition:transform .1s}
+#shutter:active i{transform:scale(.88);background:var(--amber)}
+#shutter[disabled]{opacity:.4}
+#side{justify-self:end;display:flex;gap:8px}
+.pill{height:48px;min-width:58px;padding:0 10px;border-radius:12px;border:1px solid var(--line);background:transparent;font:600 12px var(--mono);letter-spacing:.06em}
+.pill[aria-pressed="true"]{background:var(--amber);color:#1b1206;border-color:var(--amber)}
+
+@media (orientation:landscape) and (max-height:620px){
+  #app{flex-direction:row}
+  #top{flex-direction:column;padding:max(8px,env(safe-area-inset-top,0px)) 4px 8px max(6px,env(safe-area-inset-left,0px))}
+  #projChip{display:none}
+  #dock{width:300px;display:flex;flex-direction:column;justify-content:center;padding:8px max(12px,env(safe-area-inset-right,0px)) 8px 12px}
+  #reads{grid-template-columns:repeat(2,1fr);margin:0}
+}
+
+/* Start + error screen */
+#start{position:absolute;inset:0;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:14px;padding:24px max(24px,env(safe-area-inset-right,0px)) 24px max(24px,env(safe-area-inset-left,0px));background:radial-gradient(120% 80% at 50% 30%,#14202a 0%,var(--bg) 70%);z-index:5}
+#start h1{margin:0;font:700 30px/1.1 var(--ui);letter-spacing:-.01em;text-wrap:balance}
+#start h1 em{font-style:normal;color:var(--amber)}
+#start p{margin:0;color:var(--muted);max-width:34em}
+#start ul{margin:0;padding-left:18px;color:var(--fg);display:grid;gap:4px}
+#startBtn{margin-top:6px;height:52px;padding:0 26px;border-radius:14px;border:0;background:var(--amber);color:#1b1206;font-weight:700;font-size:16px}
+#startErr{color:var(--warn);max-width:34em}
+
+/* Sheets */
+.sheet{position:fixed;inset:0;z-index:10;background:var(--sheet);display:flex;flex-direction:column;transform:translateY(102%);transition:transform .22s ease;visibility:hidden}
+.sheet.open{transform:none;visibility:visible}
+.sheet-h{display:flex;align-items:center;gap:8px;padding:calc(env(safe-area-inset-top,0px) + 8px) max(12px,env(safe-area-inset-right,0px)) 8px max(16px,env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}
+.sheet-h h2{flex:1;margin:0;font-size:18px}
+.sheet-b{flex:1;overflow:auto;padding:8px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 32px) max(16px,env(safe-area-inset-left,0px))}
+.ib{width:44px;height:44px;border-radius:10px;border:0;background:transparent;display:inline-flex;align-items:center;justify-content:center}
+.ib:active{background:var(--raised)}
+.sheet h3{margin:22px 0 6px;font:600 11px var(--ui);letter-spacing:.12em;text-transform:uppercase;color:var(--amber)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.row>label,.row>.lbl{flex:1 1 140px;min-width:0}
+.row small{display:block;color:var(--muted);font-size:12px}
+.row select,.row input[type=text],.row input[type=number]{height:40px;border-radius:10px;border:1px solid var(--line);background:var(--raised);padding:0 10px;max-width:100%}
+.row input[type=text]{flex:1 1 180px}
+.row input[type=number]{width:90px}
+.row input[type=range]{flex:1 1 160px;accent-color:var(--amber)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;flex-wrap:wrap}
+.seg button{border:0;background:transparent;padding:9px 12px;font-size:13px;min-width:44px}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--amber);color:#1b1206;font-weight:600}
+input.sw{appearance:none;width:48px;height:28px;border-radius:999px;background:#33414b;position:relative;flex:0 0 auto;transition:background .15s}
+input.sw::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:transform .15s}
+input.sw:checked{background:var(--amber)}
+input.sw:checked::after{transform:translateX(20px)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;padding:10px 0;border-bottom:1px solid var(--line)}
+.chips label{display:inline-flex;align-items:center;gap:6px;padding:7px 11px;border:1px solid var(--line);border-radius:999px;font-size:13px}
+.chips input{accent-color:var(--amber);margin:0}
+.chips label:has(input:checked){border-color:rgba(255,181,71,.55)}
+#preview{display:block;max-width:100%;max-height:46vh;margin:6px auto 0;border-radius:10px;border:1px solid var(--line)}
+.hint{color:var(--muted);font-size:12px;margin:6px 0 0}
+.btn{height:42px;padding:0 16px;border-radius:10px;border:1px solid var(--line);background:var(--raised);font-weight:600}
+.btn.danger{color:var(--warn)}
+.btn.primary{background:var(--amber);color:#1b1206;border-color:var(--amber)}
+
+/* Gallery */
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:4px;padding-top:8px}
+#grid button{aspect-ratio:1;border:0;padding:0;border-radius:6px;background:var(--raised) center/cover no-repeat;max-width:100%}
+#galEmpty{color:var(--muted);padding:40px 0;text-align:center}
+#galTools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:8px}
+#galTools .hint{margin:0;flex:1 1 160px}
+#viewImg{display:block;max-width:100%;max-height:58vh;margin:8px auto 0;border-radius:8px}
+#viewActs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}
+#viewActs button,#viewActs a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;height:62px;border-radius:12px;border:1px solid var(--line);background:var(--raised);font-size:12px;text-decoration:none}
+#viewActs .armed{background:var(--warn);color:#1b0805;border-color:var(--warn)}
+dl#meta{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:0}
+dl#meta dt{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em;padding-top:2px}
+dl#meta dd{margin:0;font-family:var(--mono);font-variant-numeric:tabular-nums;word-break:break-word;min-width:0}
+
+#toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 150px);transform:translateX(-50%) translateY(10px);background:#1f2b33;border:1px solid var(--line);padding:9px 14px;border-radius:10px;opacity:0;transition:.2s;pointer-events:none;z-index:20;max-width:calc(100vw - 32px);text-align:center}
+#toast.show{opacity:1;transform:translateX(-50%)}
+@media (prefers-reduced-motion:reduce){.sheet,#toast,input.sw,input.sw::after{transition:none}#flash.go{animation:none}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top">
+    <button class="tb" id="bSettings" aria-label="Settings"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>Setup</button>
+    <button id="projChip">No project</button>
+    <span class="spacer"></span>
+    <button class="tb" id="bGrid" aria-label="Grid"><svg class="i" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1"/><path d="M9.3 4v16M14.7 4v16M4 9.3h16M4 14.7h16"/></svg><span>Off</span></button>
+    <button class="tb" id="bTimer" aria-label="Self-timer"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="13" r="7"/><path d="M12 13V9.5M10 3h4"/></svg><span>Off</span></button>
+    <button class="tb" id="bTorch" aria-label="Torch" hidden><svg class="i" viewBox="0 0 24 24"><path d="M13 3 6 13h5l-1 8 7-10h-5z"/></svg>Light</button>
+    <button class="tb" id="bLens" aria-label="Switch lens" hidden><svg class="i" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3"/></svg><span>Lens</span></button>
+  </div>
+
+  <div id="stage">
+    <div id="vf">
+      <video id="video" playsinline muted autoplay></video>
+      <canvas id="ov"></canvas>
+      <div id="badges"></div>
+      <div id="zoomRow" hidden></div>
+      <div id="flash"></div>
+      <div id="count" hidden></div>
+    </div>
+    <div id="start">
+      <h1>Angle<em>Stamp</em> Camera</h1>
+      <p>Photos stamped with time, GPS, compass azimuth, tilt and roll, plus your notes. Live inclinometer, horizon and compass in the viewfinder.</p>
+      <ul>
+        <li>Choose resolution, saved size and JPEG quality</li>
+        <li>GPS and notes written into the photo file (EXIF) too</li>
+        <li>Photos stay on this phone until you save or share them</li>
+      </ul>
+      <button id="startBtn">Start camera</button>
+      <p class="hint">The app will ask for camera and location access.</p>
+      <p id="startErr" hidden></p>
+    </div>
+  </div>
+
+  <div id="dock">
+    <div id="reads">
+      <div class="rd" id="cTilt"><b>Tilt</b><span id="rTilt">—</span></div>
+      <div class="rd" id="cRoll"><b>Roll</b><span id="rRoll">—</span></div>
+      <div class="rd" id="cHdg"><b>Azimuth</b><span id="rHdg">—</span></div>
+      <div class="rd" id="cGps"><b>GPS</b><span id="rGps">—</span></div>
+    </div>
+    <div id="noteRow">
+      <input id="note" type="text" list="noteList" placeholder="Note for next photo" autocomplete="off" enterkeyhint="done">
+      <datalist id="noteList"></datalist>
+      <button id="keepNote" aria-pressed="true" title="Keep the note after each photo">Keep</button>
+    </div>
+    <div id="ctrl">
+      <button id="thumb" aria-label="Open photos"></button>
+      <button id="shutter" aria-label="Take photo" disabled><i></i></button>
+      <div id="side">
+        <button class="pill" id="bHold" aria-pressed="false" title="Freeze the angle readings">HOLD</button>
+        <button class="pill" id="bZero" aria-pressed="false" title="Set current tilt and roll as zero">ZERO</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings -->
+<section class="sheet" id="settings" aria-label="Settings">
+  <div class="sheet-h"><h2>Setup</h2><button class="ib" data-close aria-label="Close"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <div class="sheet-b">
+    <canvas id="preview" width="600" height="800"></canvas>
+    <p class="hint" style="text-align:center">Preview of the stamp with live readings</p>
+
+    <h3>Stamp</h3>
+    <div class="row"><label for="s-stampOn">Stamp text on photo</label><input type="checkbox" class="sw" id="s-stampOn" data-key="stampOn"></div>
+    <div class="row"><label for="s-project">Project / site name<small>Printed as the first line</small></label><input type="text" id="s-project" data-key="project" placeholder="e.g. Block B – Level 3"></div>
+    <div class="chips" id="fields">
+      <label><input type="checkbox" data-field="project">Project</label>
+      <label><input type="checkbox" data-field="note">Note</label>
+      <label><input type="checkbox" data-field="date">Date</label>
+      <label><input type="checkbox" data-field="time">Time</label>
+      <label><input type="checkbox" data-field="gps">Coordinates</label>
+      <label><input type="checkbox" data-field="acc">GPS accuracy</label>
+      <label><input type="checkbox" data-field="alt">Altitude</label>
+      <label><input type="checkbox" data-field="heading">Azimuth</label>
+      <label><input type="checkbox" data-field="pitch">Tilt</label>
+      <label><input type="checkbox" data-field="roll">Roll</label>
+    </div>
+    <div class="row"><span class="lbl">Position</span><div class="seg" data-key="pos"><button data-v="tl">↖</button><button data-v="tr">↗</button><button data-v="bl">↙</button><button data-v="br">↘</button><button data-v="bar">Bar</button></div></div>
+    <div class="row"><span class="lbl">Text size</span><div class="seg" data-key="fontSize"><button data-v="s">S</button><button data-v="m">M</button><button data-v="l">L</button><button data-v="xl">XL</button></div></div>
+    <div class="row"><span class="lbl">Style</span><div class="seg" data-key="style"><button data-v="band">Dark box</button><button data-v="light">Light box</button><button data-v="shadow">Outline</button></div></div>
+    <div class="row"><label for="s-dateFmt">Date format</label><select id="s-dateFmt" data-key="dateFmt"><option value="iso">2026-11-03</option><option value="dmy">03/11/2026</option><option value="mdy">11/03/2026</option><option value="long">3 Nov 2026</option></select></div>
+    <div class="row"><label for="s-h24">24-hour time</label><input type="checkbox" class="sw" id="s-h24" data-key="h24"></div>
+    <div class="row"><span class="lbl">Coordinates</span><div class="seg" data-key="coord"><button data-v="dd">16.805283°</button><button data-v="dms">16°48′19″</button></div></div>
+    <div class="row"><label for="s-compassBadge">Compass rose in stamp</label><input type="checkbox" class="sw" id="s-compassBadge" data-key="compassBadge"></div>
+    <div class="row"><label for="s-overlayInPhoto">Angle scales in photo<small>Protractor, horizon and compass tape</small></label><input type="checkbox" class="sw" id="s-overlayInPhoto" data-key="overlayInPhoto"></div>
+
+    <h3>Photo</h3>
+    <div class="row"><span class="lbl">Aspect ratio</span><div class="seg" data-key="aspect"><button data-v="4:3">4:3</button><button data-v="16:9">16:9</button><button data-v="1:1">1:1</button><button data-v="full">Full</button></div></div>
+    <div class="row"><label for="s-stream">Camera resolution<small id="actualRes">Not started</small></label><select id="s-stream" data-key="stream"><option value="2160">4K · 3840×2160</option><option value="1440">QHD · 2560×1440</option><option value="1080">Full HD · 1920×1080</option><option value="720">HD · 1280×720</option></select></div>
+    <div class="row"><label for="s-capture">Capture mode<small>Still photo can be sharper but is slower</small></label><select id="s-capture" data-key="capture"><option value="video">Fast</option><option value="photo">Still photo (beta)</option></select></div>
+    <div class="row"><label for="s-outSize">Saved size (long edge)</label><select id="s-outSize" data-key="outSize" data-type="num"><option value="0">Original</option><option value="3840">3840 px</option><option value="2560">2560 px</option><option value="1920">1920 px</option><option value="1280">1280 px</option><option value="1024">1024 px</option></select></div>
+    <div class="row"><label for="s-quality">JPEG quality <b id="qOut"></b></label><input type="range" id="s-quality" min="60" max="100" step="1" data-key="quality" data-type="num"></div>
+    <div class="row"><label for="s-deviceId">Lens</label><select id="s-deviceId" data-key="deviceId"><option value="">Back camera (auto)</option></select></div>
+    <div class="row"><label for="s-autoSave">Also save each photo to phone<small>Goes to Downloads, visible in Gallery</small></label><input type="checkbox" class="sw" id="s-autoSave" data-key="autoSave"></div>
+
+    <h3>Viewfinder &amp; sensors</h3>
+    <div class="row"><span class="lbl">Grid</span><div class="seg" data-key="grid"><button data-v="off">Off</button><button data-v="thirds">Thirds</button><button data-v="fine">Fine</button></div></div>
+    <div class="row"><span class="lbl">Self-timer</span><div class="seg" data-key="timer" data-type="num"><button data-v="0">Off</button><button data-v="3">3 s</button><button data-v="10">10 s</button></div></div>
+    <div class="row"><label for="s-fov">Lens field of view (°)<small>Long edge at 1×. Aligns the horizon ladder. S24 Ultra main ≈ 74</small></label><input type="number" id="s-fov" min="20" max="130" step="1" data-key="fov" data-type="num"></div>
+    <div class="row"><span class="lbl">Tilt / roll zero<small id="zeroInfo"></small></span><button class="btn" id="bResetZero">Reset zero</button></div>
+
+    <h3>Storage</h3>
+    <p class="hint" id="storageInfo">—</p>
+  </div>
+</section>
+
+<!-- Gallery -->
+<section class="sheet" id="gallery" aria-label="Photos">
+  <div class="sheet-h"><h2>Photos</h2><button class="ib" data-close aria-label="Close"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <div class="sheet-b">
+    <div id="galTools"><p class="hint" id="galCount"></p><button class="btn" id="bCsv">Export log (CSV)</button></div>
+    <div id="grid"></div>
+    <p id="galEmpty" hidden>No photos yet. Take one and it appears here.</p>
+  </div>
+</section>
+
+<!-- Single photo -->
+<section class="sheet" id="viewer" aria-label="Photo">
+  <div class="sheet-h"><h2 id="viewName">Photo</h2><button class="ib" data-close aria-label="Close"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <div class="sheet-b">
+    <img id="viewImg" alt="">
+    <div id="viewActs">
+      <button id="vShare"><svg class="i" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="m8 11 8-4M8 13l8 4"/></svg>Share</button>
+      <button id="vSave"><svg class="i" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Save</button>
+      <a id="vMap" target="_blank" rel="noopener"><svg class="i" viewBox="0 0 24 24"><path d="M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11z"/><circle cx="12" cy="10" r="2"/></svg>Map</a>
+      <button id="vDel"><svg class="i" viewBox="0 0 24 24"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/></svg><span>Delete</span></button>
+    </div>
+    <dl id="meta"></dl>
+  </div>
+</section>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+const UI = 'system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans Myanmar",sans-serif';
+const MONO = 'ui-monospace,"Roboto Mono",Menlo,Consolas,monospace';
+const CARD16 = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+const CARD8 = ['N','NE','E','SE','S','SW','W','NW'];
+const FS = { s: .022, m: .028, l: .036, xl: .046 };
+const STREAM = { 2160: [3840, 2160], 1440: [2560, 1440], 1080: [1920, 1080], 720: [1280, 720] };
+
+/* ---------- settings ---------- */
+const DEF = {
+  aspect: '4:3', stream: '2160', capture: 'video', outSize: 0, quality: 92, deviceId: '', autoSave: false,
+  stampOn: true, project: '', pos: 'bl', fontSize: 'm', style: 'band', dateFmt: 'iso', h24: true, coord: 'dd',
+  compassBadge: true, overlayInPhoto: true, grid: 'off', timer: 0, fov: 74, keepNote: true,
+  fields: { project: true, note: true, date: true, time: true, gps: true, acc: true, alt: true, heading: true, pitch: true, roll: true },
+  off: { pitch: 0, roll: 0 }, recentNotes: []
+};
+let S;
+try {
+  const saved = JSON.parse(localStorage.getItem('as.settings') || '{}');
+  S = Object.assign(structuredClone(DEF), saved);
+  S.fields = Object.assign({}, DEF.fields, saved.fields || {});
+  S.off = Object.assign({}, DEF.off, saved.off || {});
+} catch (e) { S = structuredClone(DEF); }
+const save = () => { try { localStorage.setItem('as.settings', JSON.stringify(S)); } catch (e) {} };
+
+/* ---------- formatting ---------- */
+const pad = n => String(n).padStart(2, '0');
+const wrap180 = a => ((a + 540) % 360) - 180;
+const cardinal = h => CARD16[Math.round(h / 22.5) % 16];
+function fmtSigned(v, dp = 1) {
+  const r = Number(v.toFixed(dp));
+  return (r > 0 ? '+' : r < 0 ? '−' : '') + Math.abs(r).toFixed(dp) + '°';
+}
+function fmtDate(d) {
+  const y = d.getFullYear(), m = pad(d.getMonth() + 1), dd = pad(d.getDate());
+  if (S.dateFmt === 'dmy') return `${dd}/${m}/${y}`;
+  if (S.dateFmt === 'mdy') return `${m}/${dd}/${y}`;
+  if (S.dateFmt === 'long') return `${d.getDate()} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]} ${y}`;
+  return `${y}-${m}-${dd}`;
+}
+function fmtTime(d) {
+  if (S.h24) return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const h = d.getHours() % 12 || 12;
+  return `${h}:${pad(d.getMinutes())}:${pad(d.getSeconds())} ${d.getHours() < 12 ? 'AM' : 'PM'}`;
+}
+function tzParts(d) {
+  const o = -d.getTimezoneOffset(), s = o >= 0 ? '+' : '-', a = Math.abs(o);
+  return { s, h: Math.floor(a / 60), m: a % 60 };
+}
+const tzLabel = d => { const t = tzParts(d); return `GMT${t.s}${t.h}${t.m ? ':' + pad(t.m) : ''}`; };
+const tzExif = d => { const t = tzParts(d); return `${t.s}${pad(t.h)}:${pad(t.m)}`; };
+const exifDate = d => `${d.getFullYear()}:${pad(d.getMonth() + 1)}:${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+function dms(x) {
+  x = Math.abs(x);
+  const d = Math.floor(x), mf = (x - d) * 60, m = Math.floor(mf), s = (mf - m) * 60;
+  return [d, m, s];
+}
+function fmtCoord(lat, lon) {
+  if (S.coord === 'dms') {
+    const f = (v, p, n) => { const [d, m, s] = dms(v); return `${d}°${pad(m)}′${s.toFixed(1).padStart(4, '0')}″${v >= 0 ? p : n}`; };
+    return `${f(lat, 'N', 'S')} ${f(lon, 'E', 'W')}`;
+  }
+  return `${Math.abs(lat).toFixed(6)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(6)}°${lon >= 0 ? 'E' : 'W'}`;
+}
+const fmtBytes = b => b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB';
+const stamp8 = d => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+function fileName(sn) {
+  const p = (sn.project || '').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 32);
+  return `${p ? p + '_' : 'AS_'}${stamp8(sn.t)}.jpg`;
+}
+
+/* ---------- toast ---------- */
+let toastT;
+function toast(msg, ms = 2400) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+/* ---------- sensors ---------- */
+let up = null, hdg = null, lastTh = 90, held = null;
+let gps = null, gpsErr = null, gpsWatch = null;
+
+function onOrient(e) {
+  if (e.beta == null || e.gamma == null) return;
+  const b = e.beta * D2R, g = e.gamma * D2R;
+  const sB = Math.sin(b), cB = Math.cos(b), sG = Math.sin(g), cG = Math.cos(g);
+  // "up" (opposite of gravity) in device coordinates
+  const v = [-cB * sG, sB, cB * cG];
+  up = up ? up.map((x, i) => x + (v[i] - x) * 0.3) : v;
+  let h = null;
+  if (typeof e.webkitCompassHeading === 'number') h = e.webkitCompassHeading;
+  else if ((e.absolute || e.type === 'deviceorientationabsolute') && e.alpha != null) {
+    const a = e.alpha * D2R, sA = Math.sin(a), cA = Math.cos(a);
+    // direction the rear camera points, in east/north
+    let east = -(cA * sG + sA * sB * cG), north = -(sA * sG - cA * sB * cG);
+    if (Math.hypot(east, north) < 0.25) { east = -sA * cB; north = cA * cB; } // pointing at floor/sky: use top edge
+    h = (Math.atan2(east, north) * R2D + 360) % 360;
+  }
+  if (h != null) hdg = hdg == null ? h : (hdg + wrap180(h - hdg) * 0.25 + 360) % 360;
+}
+function screenAngle(ux, uy, n) {
+  if (innerWidth <= innerHeight) return 0;
+  if (Math.hypot(ux, uy) > 0.3 * n) {
+    const r = Math.atan2(ux, uy) * R2D;
+    lastTh = Math.abs(wrap180(r - 90)) < Math.abs(wrap180(r - 270)) ? 90 : 270;
+  }
+  return lastTh;
+}
+function liveAngles() {
+  if (!up) return { pitch: null, roll: null, heading: hdg, vert: null, sR: 0, sU: 0 };
+  const [ux, uy, uz] = up, n = Math.hypot(ux, uy, uz) || 1;
+  const pitch = Math.asin(Math.max(-1, Math.min(1, -uz / n))) * R2D;
+  const t = screenAngle(ux, uy, n) * D2R;
+  const sR = (ux * Math.cos(t) - uy * Math.sin(t)) / n, sU = (ux * Math.sin(t) + uy * Math.cos(t)) / n;
+  const roll = Math.atan2(sR, sU) * R2D;
+  const vert = Math.asin(Math.min(1, Math.hypot(ux, uy) / n)) * R2D;
+  return { pitch: pitch - S.off.pitch, roll: wrap180(roll - S.off.roll), heading: hdg, vert, sR, sU };
+}
+const angles = () => held || liveAngles();
+
+function startSensors() {
+  addEventListener('deviceorientationabsolute', onOrient);
+  addEventListener('deviceorientation', onOrient);
+  if (navigator.geolocation && gpsWatch == null) {
+    gpsWatch = navigator.geolocation.watchPosition(p => {
+      const c = p.coords;
+      gps = { lat: c.latitude, lon: c.longitude, acc: c.accuracy, alt: c.altitude, ts: p.timestamp || Date.now() };
+      gpsErr = null;
+    }, err => { gpsErr = err.code === 1 ? 'denied' : 'error'; }, { enableHighAccuracy: true, maximumAge: 3000, timeout: 30000 });
+  }
+}
+const freshGps = () => gps && Date.now() - gps.ts < 120000 ? { ...gps } : null;
+
+/* ---------- camera ---------- */
+const video = $('#video'), vf = $('#vf'), ov = $('#ov'), octx = ov.getContext('2d');
+let stream = null, track = null, imageCapture = null, caps = {}, zoomNow = 1, torchOn = false, cams = [];
+let vfW = 300, vfH = 400, dpr = Math.min(devicePixelRatio || 1, 3);
+
+async function startCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null; $('#shutter').disabled = true;
+  const [w, h] = STREAM[S.stream] || STREAM[2160];
+  const v = { width: { ideal: w }, height: { ideal: h } };
+  if (S.deviceId) v.deviceId = { exact: S.deviceId }; else v.facingMode = { ideal: 'environment' };
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: v });
+  } catch (e) {
+    if (S.deviceId) { S.deviceId = ''; save(); return startCamera(); }
+    throw e;
+  }
+  video.srcObject = stream;
+  await video.play().catch(() => {});
+  track = stream.getVideoTracks()[0];
+  imageCapture = 'ImageCapture' in window ? new ImageCapture(track) : null;
+  caps = track.getCapabilities ? track.getCapabilities() : {};
+  torchOn = false; zoomNow = 1;
+  $('#bTorch').hidden = !caps.torch; $('#bTorch').setAttribute('aria-pressed', 'false');
+  buildZoom();
+  await listCams();
+  const st = track.getSettings();
+  $('#actualRes').textContent = `Camera is giving ${st.width}×${st.height}`;
+  $('#shutter').disabled = false;
+  $('#start').hidden = true;
+  layout();
+  wake();
+}
+async function listCams() {
+  try {
+    const all = await navigator.mediaDevices.enumerateDevices();
+    cams = all.filter(d => d.kind === 'videoinput');
+  } catch (e) { cams = []; }
+  const sel = $('#s-deviceId');
+  sel.replaceChildren(new Option('Back camera (auto)', ''));
+  cams.forEach((c, i) => sel.add(new Option(c.label || `Camera ${i + 1}`, c.deviceId)));
+  sel.value = S.deviceId;
+  $('#bLens').hidden = cams.length < 2;
+  const cur = cams.findIndex(c => c.deviceId === (track && track.getSettings().deviceId));
+  $('#bLens span').textContent = cur >= 0 ? `Lens ${cur + 1}` : 'Lens';
+}
+function buildZoom() {
+  const row = $('#zoomRow'); row.replaceChildren();
+  const z = caps.zoom;
+  if (!z || !(z.max > z.min)) { row.hidden = true; return; }
+  const steps = [1, 2, 3, 5, 10, 30].filter(x => x >= z.min && x <= z.max);
+  if (z.min < 1) steps.unshift(z.min);
+  steps.forEach(x => {
+    const b = document.createElement('button');
+    b.textContent = (Math.round(x * 10) / 10) + '×';
+    b.setAttribute('aria-pressed', String(x === 1));
+    b.onclick = async () => {
+      try {
+        await track.applyConstraints({ advanced: [{ zoom: x }] }); zoomNow = x;
+        row.querySelectorAll('button').forEach(o => o.setAttribute('aria-pressed', String(o === b)));
+      } catch (e) { toast('Zoom not available on this lens'); }
+    };
+    row.append(b);
+  });
+  row.hidden = steps.length < 2;
+}
+let wakeLock = null;
+async function wake() { try { if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.onrelease = () => { wakeLock = null; }; } } catch (e) {} }
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  wake();
+  if (stream && track && track.readyState === 'ended') startCamera().catch(showErr);
+});
+
+/* ---------- layout ---------- */
+function layout() {
+  const r = $('#stage').getBoundingClientRect();
+  let target;
+  if (S.aspect === 'full' && video.videoWidth) target = video.videoWidth / video.videoHeight;
+  else {
+    const [a, b] = (S.aspect === 'full' ? '4:3' : S.aspect).split(':').map(Number);
+    target = r.height >= r.width ? b / a : a / b;
+  }
+  let w = r.width, h = w / target;
+  if (h > r.height) { h = r.height; w = h * target; }
+  vfW = Math.max(1, Math.floor(w)); vfH = Math.max(1, Math.floor(h));
+  vf.style.width = vfW + 'px'; vf.style.height = vfH + 'px';
+  dpr = Math.min(devicePixelRatio || 1, 3);
+  ov.width = vfW * dpr; ov.height = vfH * dpr;
+}
+addEventListener('resize', () => requestAnimationFrame(layout));
+video.addEventListener('loadedmetadata', layout);
+video.addEventListener('resize', layout);
+
+/* ---------- drawing: angle scales ---------- */
+function drawReticle(ctx, w, h, a, opt) {
+  const m = Math.min(w, h), s = m / 380, cx = w / 2, cy = h / 2;
+  const AMBER = '#ffb547', OK = '#4fe0b6', WH = 'rgba(255,255,255,.92)';
+  ctx.save();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.shadowColor = 'rgba(0,0,0,.75)'; ctx.shadowBlur = 3 * s;
+
+  if (opt.grid && opt.grid !== 'off') {
+    const n = opt.grid === 'thirds' ? 3 : 6;
+    ctx.strokeStyle = 'rgba(255,255,255,.32)'; ctx.lineWidth = Math.max(1, s);
+    ctx.beginPath();
+    for (let i = 1; i < n; i++) { ctx.moveTo(w * i / n, 0); ctx.lineTo(w * i / n, h); ctx.moveTo(0, h * i / n); ctx.lineTo(w, h * i / n); }
+    ctx.stroke();
+  }
+  // centre cross
+  ctx.strokeStyle = WH; ctx.lineWidth = 1.5 * s;
+  const c1 = 6 * s, c2 = 18 * s;
+  ctx.beginPath();
+  ctx.moveTo(cx - c2, cy); ctx.lineTo(cx - c1, cy); ctx.moveTo(cx + c1, cy); ctx.lineTo(cx + c2, cy);
+  ctx.moveTo(cx, cy - c2); ctx.lineTo(cx, cy - c1); ctx.moveTo(cx, cy + c1); ctx.lineTo(cx, cy + c2);
+  ctx.stroke();
+
+  if (a.pitch != null) {
+    const levelCol = Math.abs(a.roll) < 0.5 ? OK : AMBER;
+    if (Math.abs(a.pitch) < 62) {
+      // artificial horizon with a 10° ladder
+      const ppd = opt.ppd;
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(a.roll * D2R);
+      ctx.font = `${10 * s}px ${MONO}`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      for (const k of [-30, -20, -10, 0, 10, 20, 30]) {
+        const y = (a.pitch - k) * ppd;
+        if (Math.abs(y) > h * 0.4) continue;
+        const L = k === 0 ? m * 0.44 : m * 0.11;
+        ctx.strokeStyle = k === 0 ? levelCol : 'rgba(255,255,255,.7)';
+        ctx.lineWidth = (k === 0 ? 2.2 : 1.1) * s;
+        ctx.beginPath();
+        if (k === 0) { ctx.moveTo(-L, y); ctx.lineTo(-26 * s, y); ctx.moveTo(26 * s, y); ctx.lineTo(L, y); }
+        else { ctx.moveTo(-L, y); ctx.lineTo(L, y); }
+        ctx.stroke();
+        if (k) { ctx.fillStyle = WH; ctx.fillText((k > 0 ? '+' : '') + k + '°', L + 5 * s, y); }
+      }
+      ctx.restore();
+
+      // protractor arc (roll scale)
+      const r = m * 0.40;
+      ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 1.4 * s;
+      ctx.beginPath(); ctx.arc(cx, cy, r, (-150) * D2R, (-30) * D2R); ctx.stroke();
+      ctx.fillStyle = WH; ctx.font = `${9.5 * s}px ${MONO}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      for (let d = -60; d <= 60; d += 5) {
+        const t = (d - 90) * D2R, big = d % 15 === 0, len = (big ? 11 : 6) * s;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(t) * r, cy + Math.sin(t) * r);
+        ctx.lineTo(cx + Math.cos(t) * (r - len), cy + Math.sin(t) * (r - len));
+        ctx.stroke();
+        if (big) ctx.fillText(String(Math.abs(d)), cx + Math.cos(t) * (r + 11 * s), cy + Math.sin(t) * (r + 11 * s));
+      }
+      const rc = Math.max(-62, Math.min(62, a.roll)), t = (rc - 90) * D2R;
+      ctx.save();
+      ctx.translate(cx + Math.cos(t) * (r - 15 * s), cy + Math.sin(t) * (r - 15 * s)); ctx.rotate(rc * D2R);
+      ctx.fillStyle = levelCol; ctx.beginPath(); ctx.moveTo(0, -9 * s); ctx.lineTo(-6 * s, 3 * s); ctx.lineTo(6 * s, 3 * s); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    } else {
+      // camera pointing at floor or sky: bubble level
+      const R = m * 0.2, k = Math.min(a.vert, 15) / 15, len = Math.hypot(a.sR, a.sU) || 1;
+      const bx = cx + (a.sR / len) * k * R, by = cy - (a.sU / len) * k * R;
+      const ok = a.vert < 0.5;
+      ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 1.4 * s;
+      ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy, R / 3, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = ok ? 'rgba(79,224,182,.85)' : 'rgba(255,181,71,.85)';
+      ctx.beginPath(); ctx.arc(bx, by, 11 * s, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = WH; ctx.font = `600 ${12 * s}px ${MONO}`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillText(`${a.vert.toFixed(1)}° off ${a.pitch < 0 ? 'plumb' : 'zenith'}`, cx, cy + R + 8 * s);
+    }
+  }
+
+  // compass tape
+  if (a.heading != null) {
+    const tw = Math.min(w * 0.86, m * 1.05), span = 30, ppx = tw / (2 * span), ty = 22 * s;
+    ctx.lineWidth = 1.2 * s; ctx.strokeStyle = WH;
+    ctx.font = `${9.5 * s}px ${MONO}`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    for (let d = Math.ceil((a.heading - span) / 5) * 5; d <= a.heading + span; d += 5) {
+      const x = cx + (d - a.heading) * ppx, dd = ((d % 360) + 360) % 360, big = dd % 15 === 0;
+      ctx.globalAlpha = 1 - Math.pow(Math.abs(d - a.heading) / span, 3) * 0.8;
+      ctx.beginPath(); ctx.moveTo(x, ty); ctx.lineTo(x, ty + (big ? 9 : 5) * s); ctx.stroke();
+      if (big) {
+        const card = dd % 45 === 0;
+        ctx.fillStyle = dd === 0 ? '#ff6b5b' : card ? AMBER : WH;
+        ctx.font = `${card ? '700 ' : ''}${(card ? 11 : 9.5) * s}px ${MONO}`;
+        ctx.fillText(card ? CARD8[dd / 45] : String(dd), x, ty + 11 * s);
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = AMBER;
+    ctx.beginPath(); ctx.moveTo(cx, ty - 1 * s); ctx.lineTo(cx - 6 * s, ty - 9 * s); ctx.lineTo(cx + 6 * s, ty - 9 * s); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ---------- drawing: stamp ---------- */
+const seg = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+const graphemes = s => seg ? Array.from(seg.segment(s), x => x.segment) : Array.from(s);
+function wrapText(ctx, text, maxW) {
+  const out = [];
+  for (const para of String(text).split('\n')) {
+    let line = '';
+    for (const tok of para.split(/(\s+)/)) {
+      if (!tok) continue;
+      if (ctx.measureText(line + tok).width <= maxW) { line += tok; continue; }
+      if (line.trim()) { out.push(line.trimEnd()); line = ''; }
+      if (/^\s+$/.test(tok)) continue;
+      if (ctx.measureText(tok).width <= maxW) { line = tok; continue; }
+      for (const g of graphemes(tok)) {
+        if (line && ctx.measureText(line + g).width > maxW) { out.push(line); line = g; } else line += g;
+      }
+    }
+    if (line.trim()) out.push(line.trimEnd());
+  }
+  return out.slice(0, 8);
+}
+function stampLines(sn) {
+  const f = S.fields, L = [];
+  if (f.project && sn.project) L.push({ t: sn.project, k: 'title' });
+  if (f.note && sn.note) L.push({ t: sn.note, k: 'note' });
+  const dt = [];
+  if (f.date) dt.push(fmtDate(sn.t));
+  if (f.time) dt.push(`${fmtTime(sn.t)} ${tzLabel(sn.t)}`);
+  if (dt.length) L.push({ t: dt.join('  ') });
+  if (f.gps) {
+    if (sn.gps) L.push({ t: fmtCoord(sn.gps.lat, sn.gps.lon) + (f.acc && sn.gps.acc != null ? `  ±${Math.round(sn.gps.acc)} m` : '') });
+    else L.push({ t: 'GPS: no fix' });
+  }
+  const ang = [];
+  if (f.alt && sn.gps && sn.gps.alt != null) ang.push(`Alt ${Math.round(sn.gps.alt)} m`);
+  if (f.heading && sn.heading != null) ang.push(`Az ${Math.round(sn.heading)}° ${cardinal(sn.heading)}`);
+  if (f.pitch && sn.pitch != null) ang.push(`Tilt ${fmtSigned(sn.pitch)}`);
+  if (f.roll && sn.roll != null) ang.push(`Roll ${fmtSigned(sn.roll)}`);
+  if (ang.length) L.push({ t: ang.join('  ·  ') });
+  return L;
+}
+const fontFor = (k, fs) => k === 'title' ? `700 ${fs * 1.1}px ${UI}` : k === 'note' ? `600 ${fs}px ${UI}` : `500 ${fs}px ${UI}`;
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function drawCompass(ctx, x, y, r, hd, st) {
+  const fg = st === 'light' ? '#14181b' : '#ffffff', acc = st === 'light' ? '#a35a00' : '#ffb547';
+  ctx.save(); ctx.translate(x, y);
+  if (st === 'shadow') { ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); }
+  ctx.strokeStyle = fg; ctx.lineWidth = r * 0.05;
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.92, 0, Math.PI * 2); ctx.stroke();
+  for (let i = 0; i < 360; i += 30) {
+    const t = (i - hd) * D2R, a = Math.sin(t), b = -Math.cos(t), r2 = r * (i % 90 === 0 ? 0.76 : 0.84);
+    ctx.beginPath(); ctx.moveTo(a * r * 0.92, b * r * 0.92); ctx.lineTo(a * r2, b * r2); ctx.stroke();
+  }
+  ctx.font = `700 ${r * 0.34}px ${UI}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  [['N', 0], ['E', 90], ['S', 180], ['W', 270]].forEach(([l, d]) => {
+    const t = (d - hd) * D2R;
+    ctx.fillStyle = l === 'N' ? '#ff5a4a' : fg;
+    ctx.fillText(l, Math.sin(t) * r * 0.52, -Math.cos(t) * r * 0.52);
+  });
+  ctx.fillStyle = acc;
+  ctx.beginPath(); ctx.moveTo(0, -r * 1.02); ctx.lineTo(-r * 0.14, -r * 0.7); ctx.lineTo(r * 0.14, -r * 0.7); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.06, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+function drawStamp(ctx, W, H, sn) {
+  const lines = S.stampOn ? stampLines(sn) : [];
+  const badge = S.compassBadge && sn.heading != null;
+  if (!lines.length && !badge) return;
+  const m = Math.min(W, H), fs = Math.max(10, Math.round(m * (FS[S.fontSize] || FS.m)));
+  const lh = fs * 1.34, pad = fs * 0.7, mar = Math.round(m * 0.025), bar = S.pos === 'bar', st = S.style;
+  const br = badge ? fs * 2.3 : 0;
+  const maxTextW = bar ? W - pad * 2 - (badge ? br * 2 + pad : 0) : W * 0.64;
+  ctx.save(); ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  const rows = [];
+  for (const l of lines) { ctx.font = fontFor(l.k, fs); for (const t of wrapText(ctx, l.t, maxTextW)) rows.push({ t, k: l.k }); }
+  let tw = 0;
+  for (const r of rows) { ctx.font = fontFor(r.k, fs); tw = Math.max(tw, ctx.measureText(r.t).width); }
+  const textH = rows.length * lh, innerH = Math.max(textH, br * 2);
+  const boxW = bar ? W : tw + pad * 2 + (badge ? br * 2 + (rows.length ? pad : 0) : 0), boxH = innerH + pad * 2;
+  const x = bar ? 0 : (S.pos[1] === 'l' ? mar : W - mar - boxW);
+  const y = bar ? H - boxH : (S.pos[0] === 't' ? mar : H - mar - boxH);
+  if (st !== 'shadow') {
+    ctx.fillStyle = st === 'light' ? 'rgba(255,255,255,.86)' : 'rgba(8,12,16,.62)';
+    roundRect(ctx, x, y, boxW, boxH, bar ? 0 : fs * 0.4); ctx.fill();
+  }
+  const txt = st === 'light' ? '#14181b' : '#ffffff', acc = st === 'light' ? '#a35a00' : '#ffb547';
+  let ty = y + pad + (innerH - textH) / 2 + lh * 0.76;
+  for (const r of rows) {
+    ctx.font = fontFor(r.k, fs);
+    if (st === 'shadow') { ctx.lineWidth = fs * 0.18; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.strokeText(r.t, x + pad, ty); }
+    ctx.fillStyle = r.k === 'title' ? acc : txt;
+    ctx.fillText(r.t, x + pad, ty);
+    ty += lh;
+  }
+  if (badge) drawCompass(ctx, x + boxW - pad - br, y + boxH / 2, br, sn.heading, st);
+  ctx.restore();
+}
+
+/* ---------- EXIF ---------- */
+function exifPayload(sn, W, H) {
+  const enc = new TextEncoder();
+  const u32 = n => { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, n); return b; };
+  const rat = pairs => { const b = new Uint8Array(pairs.length * 8), v = new DataView(b.buffer); pairs.forEach(([n, d], i) => { v.setUint32(i * 8, n); v.setUint32(i * 8 + 4, d); }); return b; };
+  const E = (tag, type, count, bytes) => ({ tag, type, count, bytes });
+  const A = (tag, s) => { const b = enc.encode(s + '\0'); return E(tag, 2, b.length, b); };
+  const dt = exifDate(sn.t), desc = [sn.project, sn.note].filter(Boolean).join(' — ').slice(0, 600);
+  const pExif = E(0x8769, 4, 1, u32(0)), pGps = E(0x8825, 4, 1, u32(0));
+  const ifd0 = [A(0x0131, 'AngleStamp Camera'), A(0x0132, dt), pExif];
+  if (desc) ifd0.push(A(0x010E, desc));
+  const exif = [A(0x9003, dt), A(0x9004, dt), A(0x9010, tzExif(sn.t)), A(0x9011, tzExif(sn.t)), E(0xA002, 4, 1, u32(W)), E(0xA003, 4, 1, u32(H))];
+  if (desc) {
+    const u = new Uint8Array(8 + desc.length * 2), v = new DataView(u.buffer);
+    u.set([0x55, 0x4E, 0x49, 0x43, 0x4F, 0x44, 0x45, 0]); // "UNICODE\0"
+    for (let i = 0; i < desc.length; i++) v.setUint16(8 + i * 2, desc.charCodeAt(i));
+    exif.push(E(0x9286, 7, u.length, u));
+  }
+  const ifds = [ifd0, exif];
+  const g = sn.gps;
+  if (g) {
+    const tri = x => { const [d, m, s] = dms(x); return rat([[d, 1], [m, 1], [Math.round(s * 1000), 1000]]); };
+    const utc = sn.t;
+    const gl = [E(0, 1, 4, new Uint8Array([2, 3, 0, 0])), A(1, g.lat >= 0 ? 'N' : 'S'), E(2, 5, 3, tri(g.lat)), A(3, g.lon >= 0 ? 'E' : 'W'), E(4, 5, 3, tri(g.lon)),
+      E(7, 5, 3, rat([[utc.getUTCHours(), 1], [utc.getUTCMinutes(), 1], [utc.getUTCSeconds(), 1]])),
+      A(0x1D, `${utc.getUTCFullYear()}:${pad(utc.getUTCMonth() + 1)}:${pad(utc.getUTCDate())}`)];
+    if (g.alt != null) { gl.push(E(5, 1, 1, new Uint8Array([g.alt < 0 ? 1 : 0]))); gl.push(E(6, 5, 1, rat([[Math.round(Math.abs(g.alt) * 100), 100]]))); }
+    if (sn.heading != null) { gl.push(A(0x10, 'M')); gl.push(E(0x11, 5, 1, rat([[Math.round(sn.heading * 100), 100]]))); }
+    if (g.acc != null) gl.push(E(0x1F, 5, 1, rat([[Math.round(g.acc * 100), 100]])));
+    ifd0.push(pGps); ifds.push(gl);
+  }
+  ifds.forEach(l => l.sort((p, q) => p.tag - q.tag));
+  const size = l => l.reduce((n, e) => n + (e.bytes.length > 4 ? e.bytes.length + (e.bytes.length & 1) : 0), 2 + 12 * l.length + 4);
+  const offs = []; let off = 8;
+  for (const l of ifds) { offs.push(off); off += size(l); }
+  pExif.bytes = u32(offs[1]); if (g) pGps.bytes = u32(offs[2]);
+  const tiff = new Uint8Array(off), v = new DataView(tiff.buffer);
+  tiff.set([0x4D, 0x4D, 0, 42, 0, 0, 0, 8]);
+  ifds.forEach((l, k) => {
+    const o = offs[k]; let dp = o + 2 + 12 * l.length + 4;
+    v.setUint16(o, l.length);
+    l.forEach((e, i) => {
+      const p = o + 2 + i * 12;
+      v.setUint16(p, e.tag); v.setUint16(p + 2, e.type); v.setUint32(p + 4, e.count);
+      if (e.bytes.length <= 4) tiff.set(e.bytes, p + 8);
+      else { v.setUint32(p + 8, dp); tiff.set(e.bytes, dp); dp += e.bytes.length + (e.bytes.length & 1); }
+    });
+    v.setUint32(o + 2 + 12 * l.length, 0);
+  });
+  const out = new Uint8Array(6 + tiff.length);
+  out.set([0x45, 0x78, 0x69, 0x66, 0, 0]); out.set(tiff, 6);
+  return out;
+}
+async function withExif(blob, payload) {
+  if (payload.length + 2 > 65535) return blob;
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  if (buf[0] !== 0xFF || buf[1] !== 0xD8) return blob;
+  let pos = 2;
+  if (buf[2] === 0xFF && buf[3] === 0xE0) pos = 4 + ((buf[4] << 8) | buf[5]);
+  const len = payload.length + 2, segm = new Uint8Array(4 + payload.length);
+  segm.set([0xFF, 0xE1, len >> 8, len & 255]); segm.set(payload, 4);
+  return new Blob([buf.subarray(0, pos), segm, buf.subarray(pos)], { type: 'image/jpeg' });
+}
+
+/* ---------- storage (IndexedDB) ---------- */
+let dbp = null;
+const idb = () => dbp || (dbp = new Promise((res, rej) => {
+  const r = indexedDB.open('anglestamp', 1);
+  r.onupgradeneeded = () => r.result.createObjectStore('photos', { keyPath: 'id', autoIncrement: true });
+  r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+}));
+async function tx(mode, fn) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const t = db.transaction('photos', mode), req = fn(t.objectStore('photos'));
+    t.oncomplete = () => res(req && req.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
+  });
+}
+const dbPut = rec => tx('readwrite', s => s.add(rec));
+const dbAll = () => tx('readonly', s => s.getAll());
+const dbGet = id => tx('readonly', s => s.get(id));
+const dbDel = id => tx('readwrite', s => s.delete(id));
+const dbCount = () => tx('readonly', s => s.count());
+
+/* ---------- capture ---------- */
+let busy = false;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function snapshot() {
+  const a = angles();
+  return { t: new Date(), pitch: a.pitch, roll: a.roll, heading: a.heading, vert: a.vert, sR: a.sR, sU: a.sU,
+    gps: freshGps(), note: $('#note').value.trim(), project: (S.project || '').trim() };
+}
+async function countdown(n) {
+  const c = $('#count'); c.hidden = false;
+  for (let i = n; i > 0; i--) { c.textContent = i; if (navigator.vibrate) navigator.vibrate(20); await sleep(1000); }
+  c.hidden = true;
+}
+async function grabFrame() {
+  if (S.capture === 'photo' && imageCapture) {
+    try {
+      const pc = await imageCapture.getPhotoCapabilities();
+      const opts = pc.imageWidth && pc.imageWidth.max ? { imageWidth: pc.imageWidth.max } : {};
+      const blob = await imageCapture.takePhoto(opts);
+      return await createImageBitmap(blob);
+    } catch (e) { toast('Still photo failed, used fast capture'); }
+  }
+  return null;
+}
+async function shoot() {
+  if (busy || !stream) return;
+  busy = true; $('#shutter').disabled = true;
+  try {
+    if (S.timer) await countdown(S.timer);
+    const sn = snapshot();
+    const still = await grabFrame();
+    const src = still || video;
+    const sw = still ? still.width : video.videoWidth, sh = still ? still.height : video.videoHeight;
+    if (!sw || !sh) throw new Error('camera not ready');
+    // a still photo may arrive in sensor orientation; turn it to match the preview
+    const rot = still && video.videoWidth && ((sw > sh) !== (video.videoWidth > video.videoHeight));
+    const fw = rot ? sh : sw, fh = rot ? sw : sh;
+    const target = vfW / vfH;
+    let cw = fw, ch = fh;
+    if (fw / fh > target) cw = fh * target; else ch = fw / target;
+    const scale = S.outSize ? Math.min(1, S.outSize / Math.max(cw, ch)) : 1;
+    const W = Math.round(cw * scale), H = Math.round(ch * scale);
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const ctx = cv.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.save();
+    ctx.scale(W / cw, H / ch); ctx.translate(-(fw - cw) / 2, -(fh - ch) / 2);
+    if (rot) { ctx.translate(fw, 0); ctx.rotate(Math.PI / 2); }
+    ctx.drawImage(src, 0, 0);
+    ctx.restore();
+    if (still && still.close) still.close();
+    if (S.overlayInPhoto) drawReticle(ctx, W, H, sn, { ppd: Math.max(fw, fh) * (W / cw) / (S.fov / zoomNow), grid: 'off' });
+    drawStamp(ctx, W, H, sn);
+    const jpg = await new Promise((res, rej) => cv.toBlob(b => b ? res(b) : rej(new Error('could not encode JPEG')), 'image/jpeg', S.quality / 100));
+    const blob = await withExif(jpg, exifPayload(sn, W, H));
+    const thumb = await makeThumb(cv);
+    cv.width = cv.height = 0;
+    const name = fileName(sn);
+    const meta = { t: sn.t.getTime(), tz: tzLabel(sn.t), pitch: sn.pitch, roll: sn.roll, heading: sn.heading, gps: sn.gps, note: sn.note, project: sn.project, w: W, h: H, size: blob.size };
+    await dbPut({ blob, thumb, name, meta });
+    $('#flash').classList.remove('go'); void $('#flash').offsetWidth; $('#flash').classList.add('go');
+    if (navigator.vibrate) navigator.vibrate(30);
+    if (sn.note) rememberNote(sn.note);
+    if (!S.keepNote) $('#note').value = '';
+    refreshThumb();
+    if (S.autoSave) downloadBlob(blob, name);
+    toast(`Saved ${W}×${H} · ${fmtBytes(blob.size)}${sn.gps ? '' : ' · no GPS fix'}`);
+  } catch (e) {
+    toast('Photo failed: ' + (e.message || e));
+  } finally {
+    busy = false; $('#shutter').disabled = !stream;
+  }
+}
+function makeThumb(cv) {
+  const k = 320 / Math.max(cv.width, cv.height), t = document.createElement('canvas');
+  t.width = Math.round(cv.width * k); t.height = Math.round(cv.height * k);
+  t.getContext('2d').drawImage(cv, 0, 0, t.width, t.height);
+  return new Promise(r => t.toBlob(r, 'image/jpeg', 0.8));
+}
+function rememberNote(n) {
+  S.recentNotes = [n, ...S.recentNotes.filter(x => x !== n)].slice(0, 12); save(); fillNotes();
+}
+function fillNotes() { $('#noteList').replaceChildren(...S.recentNotes.map(n => new Option(n))); }
+function downloadBlob(blob, name) {
+  const u = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = u; a.download = name; document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 5000);
+}
+let thumbUrl = null;
+async function refreshThumb() {
+  try {
+    const n = await dbCount();
+    const el = $('#thumb');
+    if (thumbUrl) { URL.revokeObjectURL(thumbUrl); thumbUrl = null; }
+    if (!n) { el.style.backgroundImage = ''; el.replaceChildren(); return; }
+    const last = await tx('readonly', s => s.openCursor(null, 'prev'));
+    if (last && last.value) { thumbUrl = URL.createObjectURL(last.value.thumb); el.style.backgroundImage = `url(${thumbUrl})`; }
+    const b = document.createElement('small'); b.textContent = n; el.replaceChildren(b);
+  } catch (e) {}
+}
+
+/* ---------- live loop ---------- */
+let frame = 0;
+function loop() {
+  requestAnimationFrame(loop);
+  const a = angles();
+  if (stream) {
+    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    octx.clearRect(0, 0, vfW, vfH);
+    const vw = video.videoWidth || 4, vh = video.videoHeight || 3, sc = Math.max(vfW / vw, vfH / vh);
+    drawReticle(octx, vfW, vfH, a, { ppd: Math.max(vw, vh) * sc / (S.fov / zoomNow), grid: S.grid });
+  }
+  if (++frame % 6) return;
+  const q = (id, v, state) => { $(id + ' span').textContent = v; $(id).dataset.state = state || ''; };
+  q('#cTilt', a.pitch == null ? '—' : fmtSigned(a.pitch));
+  q('#cRoll', a.roll == null ? '—' : fmtSigned(a.roll), a.roll != null && Math.abs(a.roll) < 0.5 ? 'ok' : '');
+  q('#cHdg', a.heading == null ? '—' : `${Math.round(a.heading)}° ${cardinal(a.heading)}`);
+  const g = freshGps();
+  if (g) q('#cGps', `±${Math.round(g.acc)} m`, g.acc <= 10 ? 'ok' : g.acc <= 30 ? 'fair' : 'poor');
+  else q('#cGps', gpsErr === 'denied' ? 'Blocked' : gpsWatch == null ? '—' : 'Finding…', gpsErr ? 'poor' : 'fair');
+  const badges = [];
+  if (held) badges.push('HOLD');
+  if (S.off.pitch || S.off.roll) badges.push('ZERO SET');
+  const bEl = $('#badges'), txt = badges.join('|');
+  if (bEl.dataset.v !== txt) { bEl.dataset.v = txt; bEl.replaceChildren(...badges.map(t => Object.assign(document.createElement('span'), { className: 'badge', textContent: t }))); }
+}
+
+/* ---------- settings UI ---------- */
+function syncUI() {
+  document.querySelectorAll('[data-key]').forEach(el => {
+    const k = el.dataset.key, val = S[k];
+    if (el.classList.contains('seg')) el.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(String(b.dataset.v) === String(val))));
+    else if (el.type === 'checkbox') el.checked = !!val;
+    else if (document.activeElement !== el) el.value = val;
+  });
+  document.querySelectorAll('[data-field]').forEach(el => { el.checked = !!S.fields[el.dataset.field]; });
+  $('#qOut').textContent = S.quality;
+  $('#bGrid span').textContent = { off: 'Off', thirds: '3×3', fine: '6×6' }[S.grid];
+  $('#bGrid').setAttribute('aria-pressed', String(S.grid !== 'off'));
+  $('#bTimer span').textContent = S.timer ? S.timer + ' s' : 'Off';
+  $('#bTimer').setAttribute('aria-pressed', String(!!S.timer));
+  $('#keepNote').setAttribute('aria-pressed', String(S.keepNote));
+  const pc = $('#projChip'); pc.textContent = S.project || 'No project'; pc.classList.toggle('set', !!S.project);
+  $('#bZero').setAttribute('aria-pressed', String(!!(S.off.pitch || S.off.roll)));
+  $('#zeroInfo').textContent = S.off.pitch || S.off.roll ? `Offset tilt ${fmtSigned(S.off.pitch)}, roll ${fmtSigned(S.off.roll)}` : 'Not set (true level)';
+  if ($('#settings').classList.contains('open')) renderPreview();
+}
+function setKey(k, v) {
+  S[k] = v; save(); syncUI();
+  if (k === 'stream' || k === 'deviceId') { if (stream) startCamera().catch(showErr); }
+  if (k === 'aspect') layout();
+}
+document.querySelectorAll('[data-key]').forEach(el => {
+  const k = el.dataset.key, num = el.dataset.type === 'num';
+  if (el.classList.contains('seg')) {
+    el.addEventListener('click', e => { const b = e.target.closest('button'); if (b) setKey(k, num ? +b.dataset.v : b.dataset.v); });
+  } else {
+    const evt = el.type === 'range' || el.type === 'text' ? 'input' : 'change';
+    el.addEventListener(evt, () => {
+      let v = el.type === 'checkbox' ? el.checked : el.value;
+      if (num) { v = +v; if (!isFinite(v)) return; }
+      setKey(k, v);
+    });
+  }
+});
+document.querySelectorAll('[data-field]').forEach(el => el.addEventListener('change', () => { S.fields[el.dataset.field] = el.checked; save(); renderPreview(); }));
+$('#s-fov').addEventListener('change', e => { const v = Math.min(130, Math.max(20, +e.target.value || 74)); setKey('fov', v); });
+
+function renderPreview() {
+  const c = $('#preview'), w = 600, h = Math.round(600 * vfH / vfW);
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  const ctx = c.getContext('2d');
+  if (stream && video.videoWidth) {
+    const vw = video.videoWidth, vh = video.videoHeight, sc = Math.max(w / vw, h / vh);
+    ctx.drawImage(video, (w - vw * sc) / 2, (h - vh * sc) / 2, vw * sc, vh * sc);
+  } else {
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, '#5c7a8f'); g.addColorStop(.55, '#9fb3bf'); g.addColorStop(.56, '#5a5d4f'); g.addColorStop(1, '#2f3229');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+  }
+  const sn = snapshot();
+  if (S.overlayInPhoto) drawReticle(ctx, w, h, sn, { ppd: Math.max(w, h) / S.fov, grid: 'off' });
+  drawStamp(ctx, w, h, sn);
+}
+let prevTimer = null;
+function openSheet(id) {
+  const el = $(id); el.classList.add('open');
+  if (id === '#settings') {
+    syncUI(); storageInfo();
+    clearInterval(prevTimer); prevTimer = setInterval(renderPreview, 1000);
+  }
+}
+function closeSheet(el) {
+  el.classList.remove('open');
+  if (el.id === 'settings') clearInterval(prevTimer);
+  if (el.id === 'gallery') revokeGrid();
+  if (el.id === 'viewer') { const i = $('#viewImg'); if (i.src) URL.revokeObjectURL(i.src); i.removeAttribute('src'); }
+}
+document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => closeSheet(b.closest('.sheet'))));
+async function storageInfo() {
+  try {
+    const n = await dbCount();
+    let t = `${n} photo${n === 1 ? '' : 's'} kept in this app.`;
+    if (navigator.storage && navigator.storage.estimate) {
+      const e = await navigator.storage.estimate();
+      t += ` Using ${fmtBytes(e.usage || 0)} of ${fmtBytes(e.quota || 0)} available.`;
+    }
+    $('#storageInfo').textContent = t + ' Clearing Chrome site data deletes them, so save the ones you need.';
+  } catch (e) {}
+}
+
+/* ---------- gallery ---------- */
+let gridUrls = [];
+const revokeGrid = () => { gridUrls.forEach(u => URL.revokeObjectURL(u)); gridUrls = []; };
+async function openGallery() {
+  openSheet('#gallery');
+  revokeGrid();
+  const all = (await dbAll()).reverse();
+  const grid = $('#grid');
+  grid.replaceChildren(...all.map(r => {
+    const b = document.createElement('button'), u = URL.createObjectURL(r.thumb);
+    gridUrls.push(u); b.style.backgroundImage = `url(${u})`;
+    b.setAttribute('aria-label', r.name); b.onclick = () => openViewer(r.id);
+    return b;
+  }));
+  $('#galEmpty').hidden = all.length > 0;
+  $('#galCount').textContent = all.length ? `${all.length} photo${all.length === 1 ? '' : 's'} · newest first` : '';
+  $('#bCsv').hidden = !all.length;
+}
+let viewing = null;
+async function openViewer(id) {
+  const r = await dbGet(id); if (!r) return;
+  viewing = r;
+  const img = $('#viewImg'); if (img.src) URL.revokeObjectURL(img.src);
+  img.src = URL.createObjectURL(r.blob);
+  $('#viewName').textContent = r.name;
+  const m = r.meta, d = new Date(m.t), rows = [];
+  rows.push(['Taken', `${fmtDate(d)} ${fmtTime(d)} ${m.tz}`]);
+  if (m.project) rows.push(['Project', m.project]);
+  if (m.note) rows.push(['Note', m.note]);
+  if (m.gps) {
+    rows.push(['Location', fmtCoord(m.gps.lat, m.gps.lon)]);
+    rows.push(['Accuracy', `±${Math.round(m.gps.acc)} m`]);
+    if (m.gps.alt != null) rows.push(['Altitude', `${Math.round(m.gps.alt)} m`]);
+  } else rows.push(['Location', 'No GPS fix']);
+  if (m.heading != null) rows.push(['Azimuth', `${m.heading.toFixed(1)}° ${cardinal(m.heading)} (magnetic)`]);
+  if (m.pitch != null) rows.push(['Tilt', fmtSigned(m.pitch)]);
+  if (m.roll != null) rows.push(['Roll', fmtSigned(m.roll)]);
+  rows.push(['Image', `${m.w}×${m.h} · ${fmtBytes(m.size)}`]);
+  $('#meta').replaceChildren(...rows.flatMap(([k, v]) => [Object.assign(document.createElement('dt'), { textContent: k }), Object.assign(document.createElement('dd'), { textContent: v })]));
+  const map = $('#vMap');
+  if (m.gps) { map.href = `https://www.google.com/maps/search/?api=1&query=${m.gps.lat},${m.gps.lon}`; map.hidden = false; } else map.hidden = true;
+  disarmDelete();
+  openSheet('#viewer');
+}
+function disarmDelete() { const b = $('#vDel'); b.classList.remove('armed'); b.querySelector('span').textContent = 'Delete'; }
+$('#vShare').onclick = async () => {
+  if (!viewing) return;
+  const f = new File([viewing.blob], viewing.name, { type: 'image/jpeg' });
+  if (navigator.canShare && navigator.canShare({ files: [f] })) {
+    try { await navigator.share({ files: [f], title: viewing.name }); } catch (e) { if (e.name !== 'AbortError') toast('Sharing failed'); }
+  } else { downloadBlob(viewing.blob, viewing.name); toast('Sharing not supported here, saved to Downloads'); }
+};
+$('#vSave').onclick = () => { if (viewing) { downloadBlob(viewing.blob, viewing.name); toast('Saved to Downloads'); } };
+$('#vDel').onclick = async () => {
+  const b = $('#vDel');
+  if (!b.classList.contains('armed')) { b.classList.add('armed'); b.querySelector('span').textContent = 'Tap again'; setTimeout(disarmDelete, 3000); return; }
+  await dbDel(viewing.id); viewing = null;
+  closeSheet($('#viewer')); toast('Photo deleted'); refreshThumb(); openGallery();
+};
+$('#bCsv').onclick = async () => {
+  const all = await dbAll();
+  const esc = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const head = ['file', 'taken_local', 'timezone', 'latitude', 'longitude', 'accuracy_m', 'altitude_m', 'azimuth_deg_magnetic', 'tilt_deg', 'roll_deg', 'project', 'note', 'width', 'height', 'bytes'];
+  const lines = all.map(r => {
+    const m = r.meta, d = new Date(m.t), g = m.gps || {};
+    const f = (v, n) => v == null ? '' : Number(v).toFixed(n);
+    return [r.name, `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`, m.tz,
+      f(g.lat, 7), f(g.lon, 7), f(g.acc, 1), f(g.alt, 1), f(m.heading, 1), f(m.pitch, 2), f(m.roll, 2), m.project, m.note, m.w, m.h, m.size].map(esc).join(',');
+  });
+  downloadBlob(new Blob(['﻿' + [head.join(','), ...lines].join('\r\n')], { type: 'text/csv' }), `anglestamp_log_${stamp8(new Date())}.csv`);
+  toast('Log saved to Downloads');
+};
+
+/* ---------- controls ---------- */
+$('#shutter').onclick = shoot;
+$('#thumb').onclick = openGallery;
+$('#bSettings').onclick = () => openSheet('#settings');
+$('#projChip').onclick = () => { openSheet('#settings'); setTimeout(() => $('#s-project').focus(), 250); };
+$('#bGrid').onclick = () => setKey('grid', { off: 'thirds', thirds: 'fine', fine: 'off' }[S.grid]);
+$('#bTimer').onclick = () => setKey('timer', { 0: 3, 3: 10, 10: 0 }[S.timer] ?? 0);
+$('#keepNote').onclick = () => { S.keepNote = !S.keepNote; save(); syncUI(); };
+$('#bTorch').onclick = async () => {
+  try { torchOn = !torchOn; await track.applyConstraints({ advanced: [{ torch: torchOn }] }); $('#bTorch').setAttribute('aria-pressed', String(torchOn)); }
+  catch (e) { torchOn = false; toast('Light not available on this lens'); }
+};
+$('#bLens').onclick = () => {
+  if (cams.length < 2) return;
+  const cur = cams.findIndex(c => c.deviceId === track.getSettings().deviceId);
+  const next = cams[(cur + 1) % cams.length];
+  setKey('deviceId', next.deviceId);
+  toast(next.label || 'Switched lens');
+};
+$('#bHold').onclick = () => {
+  held = held ? null : { ...liveAngles() };
+  $('#bHold').setAttribute('aria-pressed', String(!!held));
+};
+function toggleZero() {
+  if (S.off.pitch || S.off.roll) { S.off = { pitch: 0, roll: 0 }; toast('Zero cleared, showing true level'); }
+  else {
+    const a = liveAngles();
+    if (a.pitch == null) { toast('No motion sensor reading yet'); return; }
+    S.off = { pitch: a.pitch, roll: a.roll }; toast('Current angle set as zero');
+  }
+  save(); syncUI();
+}
+$('#bZero').onclick = toggleZero;
+$('#bResetZero').onclick = () => { S.off = { pitch: 0, roll: 0 }; save(); syncUI(); toast('Zero cleared'); };
+document.addEventListener('keydown', e => {
+  // Bluetooth shutter remotes usually send Enter or volume keys
+  if (document.activeElement && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+  if (document.querySelector('.sheet.open')) return;
+  if (['Enter', ' ', 'AudioVolumeUp', 'AudioVolumeDown', 'VolumeUp', 'VolumeDown'].includes(e.key)) { e.preventDefault(); shoot(); }
+});
+$('#note').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
+
+/* ---------- start ---------- */
+function showErr(e) {
+  const el = $('#startErr'); $('#start').hidden = false; el.hidden = false;
+  const n = e && e.name;
+  el.textContent = !window.isSecureContext ? 'The camera only works when this app is opened from an https:// address.'
+    : n === 'NotAllowedError' ? 'Camera access is blocked. In Chrome tap the icon left of the address, then Permissions, and allow Camera.'
+    : n === 'NotFoundError' || n === 'OverconstrainedError' ? 'No suitable camera was found.'
+    : 'The camera could not start: ' + ((e && e.message) || e);
+}
+async function begin() {
+  $('#startErr').hidden = true;
+  try {
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      try { await DeviceOrientationEvent.requestPermission(); } catch (e) {}
+    }
+    startSensors();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw Object.assign(new Error('camera API missing'), { name: 'NotSupported' });
+    await startCamera();
+  } catch (e) { showErr(e); }
+}
+$('#startBtn').onclick = begin;
+
+(async function boot() {
+  fillNotes(); syncUI(); layout(); loop(); refreshThumb();
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('sw.js').catch(() => {});
+  try {
+    const p = await navigator.permissions.query({ name: 'camera' });
+    if (p.state === 'granted') begin();
+  } catch (e) {}
+})();
+})();
+</script>
+</body>
+</html>
